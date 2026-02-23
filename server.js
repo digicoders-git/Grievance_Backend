@@ -16,12 +16,12 @@ const app = express()
 const port = process.env.PORT
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
-// app.use(cors({
-//   origin: "http://localhost:5173",
-//   methods: ["GET", "POST", "PUT", "DELETE"],
-//   credentials: true
-// }));
-app.use(cors())
+app.use(cors({
+  origin: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  credentials: true,
+  allowedHeaders: ["Content-Type", "Authorization"]
+}));
 app.use(cookieParser())
 app.use('/admin/officer', officerRoute)
 app.use('/admin', adminRoute)
