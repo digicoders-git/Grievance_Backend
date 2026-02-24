@@ -1,4 +1,5 @@
 import Officer from "../models/redressalOfficer.model.js";
+import Grievance from "../models/grievance.model.js";
 import bcrypt from "bcryptjs";
 import generateToken from "../config/token.js";
 
@@ -94,7 +95,18 @@ export const getOfficerById = async (req, res) => {
   try {
     const officer = await Officer.findById(req.params.id).select("-password");
     if (!officer) return res.status(404).json({ message: "Officer not found" });
-    res.status(200).json(officer);
+
+    // Fetch grievance stats for this officer
+    const [claimed, inProgress, resolved, rejected] = await Promise.all([
+      Grievance.countDocuments({ handledBy: officer._id }),
+      Grievance.countDocuments({ handledBy: officer._id, status: "In Progress" }),
+      Grievance.countDocuments({ handledBy: officer._id, status: "Resolved" }),
+      Grievance.countDocuments({ handledBy: officer._id, status: "Rejected" }),
+    ]);
+
+    const stats = { claimed, inProgress, resolved, rejected };
+
+    res.status(200).json({ officer, stats });
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });
   }
@@ -124,11 +136,17 @@ export const getAllOfficers = async (req, res) => {
       query.isActive = status === "true";
     }
 
-    const officers = await Officer.find(query)
+    const officersList = await Officer.find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
       .select("-password");
+
+    // Add grievance count for each officer
+    const officers = await Promise.all(officersList.map(async (off) => {
+      const totalClaimed = await Grievance.countDocuments({ handledBy: off._id });
+      return { ...off._doc, totalClaimed };
+    }));
 
     const total = await Officer.countDocuments(query);
 
@@ -146,6 +164,7 @@ export const getAllOfficers = async (req, res) => {
       totalPages: Math.ceil(total / limit),
       totalItems: total
     });
+
 
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });

@@ -54,13 +54,17 @@ export const getAdminGrievanceStats = async (req, res) => {
 // ✅ 2. Admin Detailed Grievance List with Search, Filter & Pagination
 export const getAdminGrievanceList = async (req, res) => {
   try {
-    const { status, search, page = 1, limit = 10 } = req.query;
+    const { status, search, officerId, page = 1, limit = 10 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     let query = {};
 
     // Status filter
     if (status) query.status = status;
+
+    // Officer filter
+    if (officerId) query.handledBy = officerId;
+
 
     // Global search — searches in subject and description
     if (search) {

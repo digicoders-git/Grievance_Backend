@@ -112,3 +112,110 @@ export const getDashboardStats = async (req, res) => {
     });
   }
 };
+
+export const getOfficerDashboardStats = async (req, res) => {
+  try {
+    const officerId = req.officer.id;
+
+    // ── Counts for this specific officer ──────────────────────────────────
+    const [totalGrievances, pendingAvailable] = await Promise.all([
+      Grievance.countDocuments({ handledBy: officerId }),
+      Grievance.countDocuments({ status: "Pending" }),
+    ]);
+
+    const inProgressCount = await Grievance.countDocuments({ handledBy: officerId, status: "In Progress" });
+    const resolvedCount = await Grievance.countDocuments({ handledBy: officerId, status: "Resolved" });
+    const rejectedCount = await Grievance.countDocuments({ handledBy: officerId, status: "Rejected" });
+
+    // ── Monthly breakdown (last 12 months) for this officer ───────────────
+    const now = new Date();
+    const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+
+    const monthlyGrievances = await Grievance.aggregate([
+      {
+        $match: {
+          handledBy: officerId,
+          createdAt: { $gte: twelveMonthsAgo }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: "$createdAt" },
+            month: { $month: "$createdAt" },
+            status: "$status",
+          },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { "_id.year": 1, "_id.month": 1 } },
+    ]);
+
+    // Build 12-month labels and series arrays
+    const months = [];
+    const inProgressSeries = [];
+    const resolvedSeries = [];
+    const rejectedSeries = [];
+
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const yr = d.getFullYear();
+      const mo = d.getMonth() + 1;
+
+      const shortMonth = d.toLocaleString("en-US", { month: "short" });
+      months.push(shortMonth + " " + String(yr).slice(2));
+
+      const get = (status) => {
+        const found = monthlyGrievances.find(
+          (x) => x._id.year === yr && x._id.month === mo && x._id.status === status
+        );
+        return found ? found.count : 0;
+      };
+
+      inProgressSeries.push(get("In Progress"));
+      resolvedSeries.push(get("Resolved"));
+      rejectedSeries.push(get("Rejected"));
+    }
+
+    // ── Recent 5 grievances for this officer ──────────────────────────────
+    const recentGrievances = await Grievance.find({
+      $or: [
+        { handledBy: officerId },
+        { status: "Pending" }
+      ]
+    })
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .populate("studentId", "name enrollmentNumber")
+      .populate("handledBy", "name designation");
+
+    return res.status(200).json({
+      success: true,
+      stats: {
+        grievances: {
+          total: totalGrievances,
+          pendingAvailable: pendingAvailable, // Count of unclaimed ones
+          inProgress: inProgressCount,
+          resolved: resolvedCount,
+          rejected: rejectedCount,
+        },
+      },
+      chart: {
+        months,
+        series: {
+          inProgress: inProgressSeries,
+          resolved: resolvedSeries,
+          rejected: rejectedSeries,
+        },
+      },
+      recentGrievances,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
+  }
+};
+

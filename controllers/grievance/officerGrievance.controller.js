@@ -3,7 +3,17 @@ import Grievance from "../../models/grievance.model.js";
 // ✅ 1. Get All Grievances (Officer Side)
 export const getAllGrievances = async (req, res) => {
   try {
-    const grievances = await Grievance.find()
+    const officerId = req.officer.id;
+
+    // Show only:
+    // 1. Pending grievances (not yet claimed by anyone)
+    // 2. Grievances claimed/handled by the current officer
+    const grievances = await Grievance.find({
+      $or: [
+        { status: "Pending" },
+        { handledBy: officerId }
+      ]
+    })
       .populate("studentId", "name enrollmentNumber mobile branch year college")
       .populate("handledBy", "name designation department")
       .sort({ createdAt: -1 });
@@ -13,6 +23,7 @@ export const getAllGrievances = async (req, res) => {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
+
 
 // ✅ 2. Claim Grievance (Officer claims it)
 export const claimGrievance = async (req, res) => {
@@ -68,3 +79,29 @@ export const resolveGrievance = async (req, res) => {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
+
+// ✅ 4. Get Grievance By ID (with Auth Check)
+export const getGrievanceById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const officerId = req.officer.id;
+
+    const grievance = await Grievance.findById(id)
+      .populate("studentId", "name enrollmentNumber mobile branch year college")
+      .populate("handledBy", "name designation department");
+
+    if (!grievance) {
+      return res.status(404).json({ message: "Grievance not found" });
+    }
+
+    // Authorization check: Officer can only view if it's Pending OR they are the ones handling it
+    if (grievance.status !== "Pending" && grievance.handledBy?._id?.toString() !== officerId) {
+      return res.status(403).json({ message: "You are not authorized to view this grievance" });
+    }
+
+    res.status(200).json(grievance);
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
